@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能车间设备故障诊断与预测性维护系统</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/libs/element-plus.css">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/libs/vue.min.js"></script>
+  <script src="/libs/element-plus.min.js"></script>
+  <script src="/libs/echarts.min.js"></script>
+  <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <!-- 登录页 -->
+    <div v-if="!user" class="login-wrap">
+      <div class="login-card">
+        <div class="login-title">
+          <div class="login-icon">⚙️</div>
+          <div>
+            <div class="login-name">智能车间设备故障诊断与预测性维护系统</div>
+            <div class="login-sub">Equipment Fault Diagnosis &amp; Predictive Maintenance System</div>
+          </div>
+        </div>
+        <el-form @keyup.enter="doLogin">
+          <el-form-item>
+            <el-input v-model="loginForm.username" placeholder="用户名" size="large">
+              <template #prefix>👤</template>
+            </el-input>
+          </el-form-item>
+          <el-form-item>
+            <el-input v-model="loginForm.password" type="password" placeholder="密码" size="large" show-password>
+              <template #prefix>🔒</template>
+            </el-input>
+          </el-form-item>
+          <el-button type="primary" size="large" class="login-btn" :loading="loggingIn" @click="doLogin">登 录</el-button>
+        </el-form>
+        <div class="login-tip">演示账号：admin / engineer / manager（密码 123456）</div>
+      </div>
+    </div>
+
+    <!-- 主界面 -->
+    <el-container v-else class="layout">
+      <el-aside width="220px" class="sidebar">
+        <div class="brand">
+          <div class="brand-icon">🔧</div>
+          <div class="brand-text">
+            <div class="brand-title">智能车间运维系统</div>
+            <div class="brand-sub">PHM · Multi-Agent</div>
+          </div>
+        </div>
+        <el-menu :default-active="page" @select="switchPage" class="menu">
+          <el-menu-item index="dashboard"><span class="menu-ico">📊</span> 健康看板</el-menu-item>
+          <el-menu-item index="monitoring"><span class="menu-ico">📈</span> 设备监控</el-menu-item>
+          <el-menu-item index="chat"><span class="menu-ico">💬</span> 智能诊断</el-menu-item>
+          <el-menu-item index="workorders"><span class="menu-ico">🧾</span> 工单管理</el-menu-item>
+          <el-menu-item index="knowledge"><span class="menu-ico">📚</span> 知识库</el-menu-item>
+          <el-menu-item index="devices"><span class="menu-ico">🛠️</span> 设备台账</el-menu-item>
+          <el-menu-item v-if="user.role==='admin'" index="admin"><span class="menu-ico">👥</span> 系统管理</el-menu-item>
+        </el-menu>
+      </el-aside>
+
+      <el-container>
+        <el-header class="topbar" height="52px">
+          <div class="topbar-title">{{ pageTitle }}</div>
+          <div class="topbar-right">
+            <el-tag v-if="llmMode==='llm'" type="success" size="small">LLM 在线模式</el-tag>
+            <el-tag v-else type="info" size="small">离线模拟模式</el-tag>
+            <span class="user-chip">👤 {{ user.display_name || user.username }}（{{ roleName }}）</span>
+            <el-button link type="primary" @click="doLogout">退出</el-button>
+          </div>
+        </el-header>
+        <el-main class="main">
+          <component :is="'page-'+page" :ref="'pageRef'" v-bind="pageProps"></component>
+        </el-main>
+      </el-container>
+    </el-container>
+  </div>
+
+  <script src="/assets/components.js"></script>
+  <script src="/assets/pages2.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

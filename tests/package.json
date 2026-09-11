@@ -1,0 +1,12 @@
+{
+  "name": "phx-tests",
+  "private": true,
+  "description": "前端挂载测试(jsdom)与页面截图工具(playwright-core)",
+  "scripts": {
+    "test": "node frontend_mount_test.js"
+  },
+  "dependencies": {
+    "jsdom": "^24.1.0",
+    "playwright-core": "^1.63.0"
+  }
+}
