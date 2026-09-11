@@ -282,6 +282,8 @@ window.Pages.Monitoring = {
       rmsBuffer: [], tempBuffer: [],      // 最近 120 点实时曲线
       waveform: null,
       alarms: [],
+      prediction: null, predicting: false,
+      rulDemo: null, rulLoading: false,
       ws: null, wsConnected: false, pollTimer: null, waveTimer: null,
       charts: {},
     };
@@ -350,6 +352,49 @@ window.Pages.Monitoring = {
           </div>
         </el-col>
       </el-row>
+
+      <div class="panel">
+        <div class="panel-title">
+          <span>机器学习预测（XGBoost / 随机森林）</span>
+          <div>
+            <el-button type="primary" size="small" :loading="predicting" @click="runPrediction">▶ 运行预测</el-button>
+            <el-button size="small" :loading="rulLoading" @click="runRulDemo">⏳ 退化场景演示（RUL）</el-button>
+          </div>
+        </div>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <div v-if="prediction" style="font-size:13px">
+              <div style="margin-bottom:8px">
+                预测结论：<b :style="{color: prediction.pred_class===0?'#67c23a':'#f56c6c'}">{{ prediction.pred_label }}</b>
+                <span style="color:#909399">（模型 {{ prediction.model }} {{ prediction.model_version }}）</span>
+              </div>
+              <div v-for="(p, name) in prediction.probs" :key="name" style="margin:6px 0">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:#606266">
+                  <span>{{ name }}</span><span>{{ (p*100).toFixed(1) }}%</span>
+                </div>
+                <el-progress :percentage="Math.round(p*100)" :color="name==='正常' ? '#67c23a' : '#f56c6c'" :show-text="false" style="margin-top:2px" />
+              </div>
+              <div style="margin-top:10px">
+                健康评分：<b style="font-size:16px" :style="{color: prediction.health_score>=60?'#67c23a':'#f56c6c'}">{{ prediction.health_score }}</b>
+                <span style="margin-left:14px;color:#909399">剩余寿命：{{ prediction.rul_hours ? prediction.rul_hours + ' 小时' : '未检测到退化' }}</span>
+              </div>
+              <div v-if="!prediction.available" style="color:#e6a23c;margin-top:8px">{{ prediction.message }}</div>
+            </div>
+            <div v-else style="color:#c0c4cc;font-size:13px;padding:20px 0">点击"运行预测"对当前设备状态进行机器学习诊断</div>
+          </el-col>
+          <el-col :span="12">
+            <div v-if="rulDemo" style="font-size:13px">
+              <div style="margin-bottom:6px">
+                退化场景：外圈故障 48 小时仿真历史，当前健康指标 <b>{{ rulDemo.hi_now }}</b>，
+                估计剩余寿命 <b style="color:#f56c6c">{{ rulDemo.rul_hours }} 小时</b>
+                <span style="color:#909399">（斜率 {{ rulDemo.slope_per_hour.toFixed(3) }} HI/小时）</span>
+              </div>
+              <div ref="rulChart" style="height:180px"></div>
+            </div>
+            <div v-else style="color:#c0c4cc;font-size:13px;padding:20px 0">点击"退化场景演示"查看 48 小时退化曲线与 RUL 外推</div>
+          </el-col>
+        </el-row>
+      </div>
 
       <div class="panel">
         <div class="panel-title"><span>本设备预警记录</span></div>
@@ -479,6 +524,42 @@ window.Pages.Monitoring = {
         await api.post(`/api/alarms/${row.id}/ack`);
         this.refreshAlarms();
       } catch (e) {}
+    },
+    async runPrediction() {
+      this.predicting = true;
+      try {
+        const res = await api.post(`/api/prediction/${this.deviceId}/run`);
+        this.prediction = res.data;
+        if (!res.data.available) ElMessage.warning('模型未训练，请运行 train.bat');
+      } catch (e) { ElMessage.error('预测失败'); }
+      this.predicting = false;
+    },
+    async runRulDemo() {
+      this.rulLoading = true;
+      try {
+        const res = await api.post('/api/prediction/rul-demo',
+          { device_id: this.deviceId, fault_class: 2 });
+        this.rulDemo = res.data;
+        this.$nextTick(() => {
+          const c = this.charts.rul || (this.charts.rul = echarts.init(this.$refs.rulChart));
+          c.setOption({
+            tooltip: { trigger: 'axis' },
+            grid: { left: 45, right: 12, top: 12, bottom: 24 },
+            xAxis: { type: 'category',
+              data: this.rulDemo.history.map((h, i) => (i % 6 === 0 ? i + 'h' : '')),
+              axisLabel: { fontSize: 10 } },
+            yAxis: { type: 'value', min: 0, max: 1 },
+            series: [
+              { type: 'line', showSymbol: false, name: '健康指标 HI',
+                data: this.rulDemo.history.map(h => h.hi),
+                lineStyle: { color: '#2c4a7c' },
+                markLine: { data: [{ yAxis: 0.15, label: { formatter: '失效阈值 0.15' },
+                                     lineStyle: { color: '#f56c6c', type: 'dashed' } }] } },
+            ],
+          });
+        });
+      } catch (e) { ElMessage.error('退化演示失败'); }
+      this.rulLoading = false;
     },
     onResize() { Object.values(this.charts).forEach(c => c.resize()); },
   },
