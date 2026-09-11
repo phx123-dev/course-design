@@ -1,0 +1,14 @@
+# Python 3.13 + 清华镜像安装：
+#   py -3.13 -m venv .venv
+#   .venv\Scripts\pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.5
+xgboost>=2.1          # 若安装失败，train.py 自动降级为 sklearn GradientBoosting
+scipy>=1.13           # FFT 频谱特征、可选 CWRU .mat 加载
+httpx>=0.27           # DeepSeek API（OpenAI 兼容协议）直调
+jieba>=0.42           # 知识库中文分词（混合检索关键词打分）
+pydantic-settings>=2.2
