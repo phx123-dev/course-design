@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.db import (Alarm, Equipment, Prediction, SensorSample, User, WorkOrder,
                     get_db)
+from app.schemas import ok
 from app.services import device_service
 from app.services.stream_service import stream_engine
 
