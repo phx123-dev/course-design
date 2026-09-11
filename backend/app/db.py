@@ -171,6 +171,7 @@ class KnowledgeChunk(Base):
     vector_blob = Column(Text, default="")                      # numpy 向量 JSON 字符串
     char_start = Column(Integer, default=0)                     # 原文字符起始位置（引用定位）
     char_end = Column(Integer, default=0)
+    doc = relationship("KnowledgeDoc")                          # 反向取标题/来源
 
 
 # ---------------------------- 对话域 ----------------------------

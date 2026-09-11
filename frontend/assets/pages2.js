@@ -584,7 +584,114 @@ window.Pages.Monitoring = {
   },
 };
 
+/* ============ 知识库管理（F7） ============ */
+window.Pages.Knowledge = {
+  data() {
+    return {
+      stats: {}, docs: [], query: '', results: [], searching: false,
+      uploadVisible: false, uploadForm: { title: '', source: '手动上传', text: '' },
+    };
+  },
+  template: `
+  <div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-num">{{ stats.doc_count || 0 }}</div><div class="stat-label">知识文档</div></div>
+      <div class="stat-card"><div class="stat-num">{{ stats.chunk_count || 0 }}</div><div class="stat-label">检索分块</div></div>
+      <div class="stat-card"><div class="stat-num">{{ stats.vector_dim || 0 }}</div><div class="stat-label">向量维度</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:14px;line-height:34px">特征哈希</div><div class="stat-label">向量化引擎（可替换 Chroma）</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><span>🔍 检索测试（向量 + 关键词混合检索）</span></div>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <el-input v-model="query" placeholder="如：内圈故障有什么特征？" style="max-width:480px" @keyup.enter="doSearch" />
+        <el-button type="primary" :loading="searching" @click="doSearch">检索</el-button>
+      </div>
+      <el-empty v-if="query && !searching && results.length===0" description="无命中结果" :image-size="60" />
+      <div v-for="r in results" :key="r.ref" style="border-bottom:1px dashed #e4e7ed;padding:8px 0">
+        <div style="font-size:13px">
+          <b>{{ r.ref }}</b> {{ r.title }}
+          <span class="src" style="color:#909399;font-size:12px">（{{ r.source }} · 相似度 {{ r.score }}）</span>
+        </div>
+        <div style="font-size:12px;color:#606266;margin-top:4px">{{ r.text }}…</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>语料文档（{{ docs.length }} 篇）</span>
+        <div>
+          <el-button type="primary" size="small" @click="uploadVisible=true">＋ 上传语料</el-button>
+        </div>
+      </div>
+      <el-table :data="docs" border stripe size="small">
+        <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="source" label="来源文件" width="260" show-overflow-tooltip />
+        <el-table-column prop="chunk_count" label="分块数" width="80" />
+        <el-table-column prop="created_at" label="入库时间" width="150" />
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{row}">
+            <el-button link type="danger" @click="removeDoc(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog v-model="uploadVisible" title="上传语料（Markdown 文本）" width="640px">
+      <el-form label-width="80px">
+        <el-form-item label="标题"><el-input v-model="uploadForm.title" placeholder="如：滚动轴承外圈故障特征与诊断" /></el-form-item>
+        <el-form-item label="来源"><el-input v-model="uploadForm.source" placeholder="如：设备手册/维修案例/手动整理" /></el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="uploadForm.text" type="textarea" :rows="12"
+                    placeholder="支持 Markdown 格式，系统将按标题/段落自动切分为检索块（200~400 字/块）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="uploadVisible=false">取消</el-button>
+        <el-button type="primary" @click="doUpload">入库</el-button>
+      </template>
+    </el-dialog>
+  </div>`,
+  methods: {
+    async load() {
+      try {
+        const [s, d] = await Promise.all([api.get('/api/knowledge/stats'), api.get('/api/knowledge/docs')]);
+        this.stats = s.data; this.docs = d.data;
+      } catch (e) {}
+    },
+    async doSearch() {
+      if (!this.query.trim()) return;
+      this.searching = true;
+      try {
+        const res = await api.post('/api/knowledge/search', { query: this.query, top_k: 5 });
+        this.results = res.data;
+      } catch (e) { ElMessage.error('检索失败'); }
+      this.searching = false;
+    },
+    async doUpload() {
+      if (!this.uploadForm.title.trim() || !this.uploadForm.text.trim()) {
+        return ElMessage.warning('标题与内容不能为空');
+      }
+      try {
+        await api.post('/api/knowledge/upload', this.uploadForm);
+        ElMessage.success('入库成功');
+        this.uploadVisible = false;
+        this.uploadForm = { title: '', source: '手动上传', text: '' };
+        this.load();
+      } catch (e) { ElMessage.error(e.response?.data?.detail || '入库失败'); }
+    },
+    async removeDoc(row) {
+      await ElMessageBox.confirm(`确认删除语料《${row.title}》？`, '提示', { type: 'warning' });
+      try {
+        await api.del('/api/knowledge/docs/' + row.id);
+        ElMessage.success('已删除');
+        this.load();
+      } catch (e) { ElMessage.error('删除失败'); }
+    },
+  },
+  mounted() { this.load(); },
+};
+
 /* ============ 以下页面在后续里程碑实现（占位） ============ */
 window.Pages.Chat = { template: `<div class="panel">智能诊断对话建设中（里程碑 M8）</div>` };
 window.Pages.Workorders = { template: `<div class="panel">工单管理建设中（里程碑 M9）</div>` };
-window.Pages.Knowledge = { template: `<div class="panel">知识库管理建设中（里程碑 M7）</div>` };

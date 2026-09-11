@@ -44,6 +44,10 @@ function makeAxios() {
       recent_alarms: [],
     } } };
     if (url === '/api/monitoring/realtime') return { data: { code: 0, data: [] } };
+    if (url === '/api/knowledge/stats') return { data: { code: 0, data: { doc_count: 25, chunk_count: 120, vector_dim: 1024 } } };
+    if (url === '/api/knowledge/docs') return { data: { code: 0, data: [
+      { id: 1, title: '滚动轴承内圈故障特征与诊断', source: '自建语料', chunk_count: 6, created_at: '2026-09-11 10:00' },
+    ] } };
     if (url.startsWith('/api/alarms')) return { data: { code: 0, data: [] } };
     if (url.startsWith('/api/devices/')) return { data: { code: 0, data: { id: 1, code: 'EQ-001', name: '数控车床 CK6140 主轴轴承', health_state: 0, rpm: 1750, load_ratio: 0.8, location: '一号车间 A区', status: '运行' } } };
     throw new Error('unexpected GET ' + url);
@@ -118,7 +122,7 @@ async function mountPage(page) {
     { page: 'monitoring', menu: '设备监控', expect: '请选择设备开始监控' },
     { page: 'chat', menu: '智能诊断', expect: '智能诊断对话建设中' },
     { page: 'workorders', menu: '工单管理', expect: '工单管理建设中' },
-    { page: 'knowledge', menu: '知识库', expect: '知识库管理建设中' },
+    { page: 'knowledge', menu: '知识库', expect: '语料文档（1 篇）' },
     { page: 'devices', menu: '设备台账', expect: '共 2 台' },
     { page: 'admin', menu: '系统管理', expect: '系统说明' },
   ];
