@@ -692,6 +692,231 @@ window.Pages.Knowledge = {
   mounted() { this.load(); },
 };
 
+/* ============ 智能诊断对话（F5/F8） ============ */
+window.Pages.Chat = {
+  props: { device_id: { type: Number, default: null } },
+  data() {
+    return {
+      deviceId: this.device_id || null,
+      sessionId: null,
+      sessions: [],
+      messages: [],               // {role, content, evidence, diagnostic_id, created_at}
+      input: '', sending: false,
+      steps: [],                  // 多智能体过程步骤
+      streamingText: '',          // 正在流式输出的回复
+      lastDone: null,             // done 事件（含诊断结论/工单草稿）
+    };
+  },
+  template: `
+  <div class="chat-wrap">
+    <div class="chat-head">
+      <device-select v-model="deviceId" placeholder="选择诊断对象（可选）" style="width:280px" />
+      <el-button size="small" @click="newSession">＋ 新对话</el-button>
+      <el-select v-model="sessionId" placeholder="历史会话" size="small" style="width:220px" clearable
+                 @change="loadSession">
+        <el-option v-for="s in sessions" :key="s.id" :label="s.title + ' (' + s.created_at + ')'" :value="s.id" />
+      </el-select>
+      <span style="margin-left:auto;font-size:12px;color:#909399">
+        {{ $root.llmMode === 'llm' ? 'LLM 在线模式' : '离线模拟模式（规则+模板+ML+知识库）' }}
+      </span>
+    </div>
+
+    <div class="chat-body" ref="body">
+      <div v-for="(m, i) in messages" :key="i" class="chat-msg" :class="m.role">
+        <div>
+          <div class="chat-bubble" :class="m.role === 'assistant' ? 'markdown-body' : ''">{{ m.content }}</div>
+          <evidence-card v-if="m.role==='assistant' && m.evidence && m.evidence.length" :evidence="m.evidence" />
+          <div v-if="m.role==='assistant' && m.diagnostic_id && !m.workOrderCreated" style="margin-top:6px">
+            <el-button size="small" type="success" @click="createWoFromMessage(m)">
+              🧾 依据此诊断生成工单
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 流式回复中 -->
+      <div v-if="sending || streamingText" class="chat-msg assistant">
+        <div>
+          <div v-if="steps.length" style="margin-bottom:6px">
+            <el-tag v-for="(s, i) in steps" :key="i" size="small" type="info" effect="plain"
+                    style="margin-right:6px">{{ s }}</el-tag>
+          </div>
+          <div class="chat-bubble" style="min-width:40px">
+            {{ streamingText }}<span v-if="sending" class="cursor-blink"></span>
+          </div>
+          <evidence-card v-if="lastDone && lastDone.evidence && lastDone.evidence.length" :evidence="lastDone.evidence" />
+          <div v-if="lastDone && lastDone.diagnostic_id" style="margin-top:8px">
+            <el-button size="small" type="success" @click="createWo">🧾 依据此诊断生成工单</el-button>
+            <span style="font-size:12px;color:#909399;margin-left:8px">
+              诊断耗时 {{ lastDone.latency_ms }} ms · {{ lastDone.mode === 'llm' ? 'LLM 模式' : '离线模式' }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input">
+      <el-input v-model="input" placeholder="例如：EQ-003 振动异常，帮我诊断一下；或：内圈故障有什么特征？"
+                :disabled="sending" @keyup.enter="send" />
+      <el-button type="primary" :loading="sending" @click="send">发送</el-button>
+    </div>
+  </div>`,
+  methods: {
+    scrollBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.body;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+    async newSession() {
+      this.sessionId = null;
+      this.messages = [];
+      this.steps = [];
+      this.streamingText = '';
+      this.lastDone = null;
+    },
+    async loadSessions() {
+      try {
+        const res = await api.get('/api/chat/sessions');
+        this.sessions = res.data;
+      } catch (e) {}
+    },
+    async loadSession(id) {
+      if (!id) return;
+      try {
+        const res = await api.get(`/api/chat/sessions/${id}/messages`);
+        this.messages = res.data;
+        const s = this.sessions.find(x => x.id === id);
+        if (s) this.deviceId = s.device_id;
+        this.scrollBottom();
+      } catch (e) {}
+    },
+    /* SSE 流式问诊：fetch + ReadableStream 解析 event/data */
+    async send() {
+      const text = this.input.trim();
+      if (!text || this.sending) return;
+      this.input = '';
+      this.sending = true;
+      this.steps = [];
+      this.streamingText = '';
+      this.lastDone = null;
+      this.messages.push({ role: 'user', content: text, evidence: [] });
+      this.scrollBottom();
+
+      try {
+        const resp = await fetch('/api/chat/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + localStorage.getItem('phx_token'),
+          },
+          body: JSON.stringify({ session_id: this.sessionId, device_id: this.deviceId, message: text }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || '请求失败');
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const raw = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            this.handleSse(raw);
+          }
+        }
+      } catch (e) {
+        ElMessage.error('诊断请求失败：' + e.message);
+        this.messages.push({ role: 'assistant', content: '⚠️ 诊断服务暂不可用，请检查后端。', evidence: [] });
+      } finally {
+        this.sending = false;
+        this.scrollBottom();
+        this.loadSessions();
+      }
+    },
+    handleSse(raw) {
+      let evName = '', data = null;
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) evName = line.slice(6).trim();
+        else if (line.startsWith('data:')) {
+          try { data = JSON.parse(line.slice(5).trim()); } catch (e) {}
+        }
+      }
+      if (!evName) return;
+      switch (evName) {
+        case 'intent':
+          this.steps.push(`意图识别：${data.type === 'diagnose' ? '故障诊断' : data.type === 'chat' ? '知识咨询' : '需澄清'}`);
+          break;
+        case 'data': {
+          const p = data.prediction || {};
+          this.steps.push(`数据读取：模型${p.available ? '可用' : '不可用'}${p.pred_label ? '，预测 ' + p.pred_label : ''}`);
+          break;
+        }
+        case 'retrieve':
+          this.steps.push(`知识检索：命中 ${data.length} 条依据`);
+          break;
+        case 'diagnose':
+          this.steps.push(`诊断推理：${data.fault_type}（置信度 ${(data.confidence * 100).toFixed(0)}%）`);
+          break;
+        case 'plan':
+          this.steps.push(`决策方案：${(data.actions || []).length} 条处置步骤`);
+          break;
+        case 'token':
+          this.streamingText += data;
+          this.scrollBottom();
+          break;
+        case 'done': {
+          this.lastDone = data;
+          this.messages.push({
+            role: 'assistant', content: data.reply,
+            evidence: data.evidence || [], diagnostic_id: data.diagnostic_id,
+            workOrderCreated: false,
+          });
+          this.streamingText = '';
+          this.sessionId = this.sessionId || null;
+          break;
+        }
+        case 'error':
+          this.messages.push({ role: 'assistant', content: '⚠️ ' + data.message, evidence: [] });
+          break;
+      }
+    },
+    async createWo() {
+      if (!this.lastDone || !this.lastDone.diagnostic_id) return;
+      const plan = this.lastDone.plan || {};
+      try {
+        const res = await api.post('/api/workorders', {
+          device_id: this.deviceId,
+          title: plan.suggest_title || `设备 ${this.deviceId} 诊断维修`,
+          wtype: plan.suggest_wtype || '维修',
+          description: this.lastDone.reply,
+          priority: plan.priority || '中',
+          source: 'diagnosis',
+          diagnostic_id: this.lastDone.diagnostic_id,
+        });
+        if (res.code === 0) {
+          ElMessage.success(`工单 ${res.data.order_no} 已生成`);
+          this.$root.switchPage('workorders');
+        }
+      } catch (e) {
+        ElMessage.error('工单生成失败：' + (e.response?.data?.detail || ''));
+      }
+    },
+    async createWoFromMessage(m) {
+      this.lastDone = { diagnostic_id: m.diagnostic_id, reply: m.content, plan: {} };
+      this.createWo();
+    },
+  },
+  mounted() {
+    this.loadSessions();
+    if (this.device_id) this.deviceId = this.device_id;
+  },
+};
+
 /* ============ 以下页面在后续里程碑实现（占位） ============ */
-window.Pages.Chat = { template: `<div class="panel">智能诊断对话建设中（里程碑 M8）</div>` };
 window.Pages.Workorders = { template: `<div class="panel">工单管理建设中（里程碑 M9）</div>` };

@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.db import SessionLocal, init_db
+from app.db import KnowledgeChunk, KnowledgeDoc, SessionLocal, init_db
 from app.services.rag import splitter, store, vectorizer
 from app.services.rag.retriever import search
 
@@ -42,6 +42,18 @@ class TestRAG(unittest.TestCase):
 
 检查轴承座孔配合，更换轴承并复测对中。
 """, source="单元测试")
+        finally:
+            db.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        """清理测试文档，避免污染正式知识库"""
+        db = SessionLocal()
+        try:
+            for doc in db.query(KnowledgeDoc).filter(KnowledgeDoc.source == "单元测试").all():
+                db.query(KnowledgeChunk).filter_by(doc_id=doc.id).delete()
+                db.delete(doc)
+            db.commit()
         finally:
             db.close()
 
