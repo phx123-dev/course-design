@@ -36,6 +36,16 @@ function makeAxios() {
       { id: 1, code: 'EQ-001', name: '数控车床 CK6140 主轴轴承', etype: '数控机床', location: '一号车间 A区', rpm: 1750, load_ratio: 0.8, health_state: 0, status: '运行', description: '' },
       { id: 2, code: 'EQ-002', name: '立式加工中心 VMC850 主轴轴承', etype: '数控机床', location: '一号车间 A区', rpm: 2200, load_ratio: 0.8, health_state: 2, status: '运行', description: '' },
     ] } };
+    if (url === '/api/dashboard/overview') return { data: { code: 0, data: {
+      stats: { device_total: 2, device_running: 2, device_healthy: 1, device_fault: 1, active_alarms: 0, pending_workorders: 0, stream_running: true },
+      health_dist: [{ name: '正常', value: 1 }, { name: '内圈故障', value: 0 }, { name: '外圈故障', value: 1 }, { name: '滚动体故障', value: 0 }],
+      alarms_trend: Array.from({ length: 24 }, (_, i) => ({ hour: i + ':00', count: 0 })),
+      device_list: [],
+      recent_alarms: [],
+    } } };
+    if (url === '/api/monitoring/realtime') return { data: { code: 0, data: [] } };
+    if (url.startsWith('/api/alarms')) return { data: { code: 0, data: [] } };
+    if (url.startsWith('/api/devices/')) return { data: { code: 0, data: { id: 1, code: 'EQ-001', name: '数控车床 CK6140 主轴轴承', health_state: 0, rpm: 1750, load_ratio: 0.8, location: '一号车间 A区', status: '运行' } } };
     throw new Error('unexpected GET ' + url);
   };
   return ax;
@@ -101,11 +111,11 @@ async function mountPage(page) {
     '菜单项数量=' + doc.querySelectorAll('.sidebar .el-menu-item').length);
   check('管理员可见系统管理菜单', doc.querySelectorAll('.sidebar .el-menu-item').length === 7,
     'admin 角色应显示 7 个菜单项');
-  check('默认页面为健康看板', !!doc.querySelector('.main') && doc.body.textContent.includes('健康看板建设中'));
+  check('默认页面为健康看板', !!doc.querySelector('.main') && doc.body.textContent.includes('设备健康一览'));
 
   // 逐页切换挂载并断言页面内容（jsdom 中直接驱动 Vue 实例，绕过菜单 DOM 事件）
   const pages = [
-    { page: 'monitoring', menu: '设备监控', expect: '设备监控建设中' },
+    { page: 'monitoring', menu: '设备监控', expect: '请选择设备开始监控' },
     { page: 'chat', menu: '智能诊断', expect: '智能诊断对话建设中' },
     { page: 'workorders', menu: '工单管理', expect: '工单管理建设中' },
     { page: 'knowledge', menu: '知识库', expect: '知识库管理建设中' },

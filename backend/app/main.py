@@ -18,7 +18,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import FRONTEND_DIR, settings
 from app.db import init_db, seed_basic, SessionLocal
-from app.routers import auth, devices
+from app.routers import auth, dashboard, devices, monitoring
+from app.routers.monitoring import alarm_router, monitor_router, sensor_router
+from app.websocket import router as ws_router
 
 app = FastAPI(
     title="智能车间设备故障诊断与预测性维护系统",
@@ -34,20 +36,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 业务路由（M3：认证+设备台账；后续里程碑逐步挂载）
+# 业务路由（按里程碑逐步挂载）
 app.include_router(auth.router)
 app.include_router(devices.router)
+app.include_router(monitor_router)
+app.include_router(sensor_router)
+app.include_router(alarm_router)
+app.include_router(dashboard.router)
+app.include_router(ws_router)
 
 
 @app.on_event("startup")
 def startup_init():
-    """启动初始化：建表 + 基础种子（已存在则跳过）"""
+    """启动初始化：建表 + 基础种子 + 自动开启数据流引擎（幂等）"""
     init_db()
     db = SessionLocal()
     try:
         seed_basic(db)
     finally:
         db.close()
+    from app.services.stream_service import stream_engine
+    stream_engine.start()
 
 
 @app.get("/api/health")
