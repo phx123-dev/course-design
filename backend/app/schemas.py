@@ -82,6 +82,8 @@ class WorkOrderIn(BaseModel):
     description: str = ""
     priority: str = "中"         # 高/中/低
     assignee: str = ""
+    source: str = "manual"       # manual|diagnosis（诊断自动派单）
+    diagnostic_id: Optional[int] = None
 
 
 class WorkOrderStatusIn(BaseModel):

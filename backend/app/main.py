@@ -18,7 +18,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import FRONTEND_DIR, settings
 from app.db import init_db, seed_basic, SessionLocal
-from app.routers import auth, chat, dashboard, devices, knowledge, monitoring, prediction
+from app.routers import (auth, chat, dashboard, devices, knowledge, monitoring,
+                         prediction, reports, workorders)
 from app.routers.monitoring import alarm_router, monitor_router, sensor_router
 from app.websocket import router as ws_router
 
@@ -46,6 +47,8 @@ app.include_router(dashboard.router)
 app.include_router(prediction.router)
 app.include_router(knowledge.router)
 app.include_router(chat.router)
+app.include_router(workorders.router)
+app.include_router(reports.router)
 app.include_router(ws_router)
 
 

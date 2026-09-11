@@ -379,6 +379,9 @@ window.Pages.Monitoring = {
                 <span style="margin-left:14px;color:#909399">剩余寿命：{{ prediction.rul_hours ? prediction.rul_hours + ' 小时' : '未检测到退化' }}</span>
               </div>
               <div v-if="!prediction.available" style="color:#e6a23c;margin-top:8px">{{ prediction.message }}</div>
+            <div style="margin-top:10px">
+              <el-button size="small" @click="exportDeviceReport">📄 导出本设备诊断报告</el-button>
+            </div>
             </div>
             <div v-else style="color:#c0c4cc;font-size:13px;padding:20px 0">点击"运行预测"对当前设备状态进行机器学习诊断</div>
           </el-col>
@@ -533,6 +536,15 @@ window.Pages.Monitoring = {
         if (!res.data.available) ElMessage.warning('模型未训练，请运行 train.bat');
       } catch (e) { ElMessage.error('预测失败'); }
       this.predicting = false;
+    },
+    async exportDeviceReport() {
+      try {
+        const res = await axios.get(`/api/reports/device/${this.deviceId}`, { responseType: 'blob' });
+        const url = URL.createObjectURL(new Blob([res.data], { type: 'text/markdown' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = `device_${this.deviceId}_report.md`; a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) { ElMessage.error('报告导出失败'); }
     },
     async runRulDemo() {
       this.rulLoading = true;
@@ -918,5 +930,143 @@ window.Pages.Chat = {
   },
 };
 
-/* ============ 以下页面在后续里程碑实现（占位） ============ */
-window.Pages.Workorders = { template: `<div class="panel">工单管理建设中（里程碑 M9）</div>` };
+/* ============ 维护工单管理（F6） ============ */
+window.Pages.Workorders = {
+  data() {
+    return {
+      list: [], loading: false,
+      filterStatus: '', filterDevice: null,
+      dialog: false, form: { device_id: null, title: '', wtype: '维修', description: '', priority: '中', assignee: '' },
+    };
+  },
+  template: `
+  <div>
+    <div class="stat-row">
+      <div class="stat-card"><div class="stat-num" style="color:#f56c6c">{{ countBy('待处理') }}</div><div class="stat-label">待处理</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:#e6a23c">{{ countBy('进行中') }}</div><div class="stat-label">进行中</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:#67c23a">{{ countBy('已完成') }}</div><div class="stat-label">已完成</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:14px;line-height:34px">周报导出</div>
+        <div class="stat-label"><el-button link type="primary" size="small" @click="exportWeekly">📄 下载运维周报</el-button></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <span>工单列表</span>
+        <div style="display:flex;gap:10px">
+          <el-select v-model="filterStatus" placeholder="全部状态" clearable size="small" style="width:110px" @change="load">
+            <el-option label="待处理" value="待处理" /><el-option label="进行中" value="进行中" /><el-option label="已完成" value="已完成" />
+          </el-select>
+          <device-select v-model="filterDevice" placeholder="全部设备" style="width:220px" />
+          <el-button type="primary" size="small" @click="dialog=true">＋ 手动建单</el-button>
+        </div>
+      </div>
+      <el-table :data="filtered" v-loading="loading" border stripe size="small">
+        <el-table-column prop="order_no" label="工单号" width="150" />
+        <el-table-column prop="device_name" label="设备" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="wtype" label="类型" width="70" />
+        <el-table-column prop="priority" label="优先级" width="70">
+          <template #default="{row}"><el-tag size="small" :type="row.priority==='高'?'danger':row.priority==='中'?'warning':'info'">{{ row.priority }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{row}"><wo-status-tag :status="row.status" /></template>
+        </el-table-column>
+        <el-table-column prop="source" label="来源" width="90">
+          <template #default="{row}">
+            <el-tag size="small" type="success" effect="plain" v-if="row.source==='diagnosis'">智能诊断</el-tag>
+            <el-tag size="small" type="info" effect="plain" v-else>手动</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="150" />
+        <el-table-column label="操作" width="170" fixed="right">
+          <template #default="{row}">
+            <el-button v-if="row.status==='待处理'" link type="primary" @click="setStatus(row,'进行中')">开始处理</el-button>
+            <el-button v-if="row.status==='进行中'" link type="success" @click="setStatus(row,'已完成')">完成</el-button>
+            <el-button v-if="row.status==='已完成'" link type="warning" @click="setStatus(row,'待处理')">重开</el-button>
+            <el-button link type="primary" @click="showDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog v-model="dialog" title="手动创建工单" width="560px">
+      <el-form label-width="80px">
+        <el-form-item label="设备"><device-select v-model="form.device_id" style="width:100%" /></el-form-item>
+        <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="form.wtype" style="width:100%">
+            <el-option v-for="t in ['点检','维修','润滑','更换']" :key="t" :label="t" :value="t" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-radio-group v-model="form.priority"><el-radio value="高">高</el-radio><el-radio value="中">中</el-radio><el-radio value="低">低</el-radio></el-radio-group>
+        </el-form-item>
+        <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="4" /></el-form-item>
+        <el-form-item label="责任人"><el-input v-model="form.assignee" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialog=false">取消</el-button>
+        <el-button type="primary" @click="createManual">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="detailVisible" title="工单详情" width="640px">
+      <div v-if="detail" style="font-size:13px;line-height:2">
+        <p><b>工单号：</b>{{ detail.order_no }}　<b>状态：</b><wo-status-tag :status="detail.status" /></p>
+        <p><b>设备：</b>{{ detail.device_name }}　<b>类型：</b>{{ detail.wtype }}　<b>优先级：</b>{{ detail.priority }}</p>
+        <p><b>标题：</b>{{ detail.title }}</p>
+        <p style="white-space:pre-wrap"><b>描述：</b>{{ detail.description }}</p>
+        <p><b>创建：</b>{{ detail.created_at }}　<b>开始：</b>{{ detail.started_at || '-' }}　<b>完成：</b>{{ detail.finished_at || '-' }}</p>
+      </div>
+    </el-dialog>
+  </div>`,
+  computed: {
+    filtered() {
+      if (this.filterDevice) return this.list.filter(w => w.device_id === this.filterDevice);
+      return this.list;
+    },
+  },
+  methods: {
+    countBy(s) { return this.list.filter(w => w.status === s).length; },
+    async load() {
+      this.loading = true;
+      try {
+        const res = await api.get('/api/workorders',
+          { params: { status: this.filterStatus || undefined, limit: 200 } });
+        this.list = res.data;
+      } catch (e) {}
+      this.loading = false;
+    },
+    async setStatus(row, status) {
+      try {
+        await api.put(`/api/workorders/${row.id}/status`, { status });
+        ElMessage.success(`工单已置为「${status}」`);
+        this.load();
+      } catch (e) { ElMessage.error('状态更新失败'); }
+    },
+    showDetail(row) { this.detail = row; this.detailVisible = true; },
+    async createManual() {
+      if (!this.form.device_id || !this.form.title.trim()) {
+        return ElMessage.warning('请选择设备并填写标题');
+      }
+      try {
+        await api.post('/api/workorders', this.form);
+        ElMessage.success('工单已创建');
+        this.dialog = false;
+        this.form = { device_id: null, title: '', wtype: '维修', description: '', priority: '中', assignee: '' };
+        this.load();
+      } catch (e) { ElMessage.error('创建失败'); }
+    },
+    async exportWeekly() {
+      try {
+        const res = await axios.get('/api/reports/weekly', { responseType: 'blob' });
+        const url = URL.createObjectURL(new Blob([res.data], { type: 'text/markdown' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = 'weekly_report.md'; a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) { ElMessage.error('周报导出失败'); }
+    },
+  },
+  mounted() { this.load(); },
+};

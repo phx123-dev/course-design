@@ -49,6 +49,9 @@ function makeAxios() {
       { id: 1, title: '滚动轴承内圈故障特征与诊断', source: '自建语料', chunk_count: 6, created_at: '2026-09-11 10:00' },
     ] } };
     if (url === '/api/chat/sessions') return { data: { code: 0, data: [] } };
+    if (url === '/api/workorders') return { data: { code: 0, data: [
+      { id: 1, order_no: 'WO-20260911-0001', device_id: 1, device_name: '数控车床 CK6140 主轴轴承', title: '测试工单', wtype: '维修', description: '', priority: '高', status: '待处理', source: 'manual', diagnostic_id: null, assignee: '', created_at: '2026-09-11 10:00', started_at: '', finished_at: '' },
+    ] } };
     if (url.startsWith('/api/alarms')) return { data: { code: 0, data: [] } };
     if (url.startsWith('/api/devices/')) return { data: { code: 0, data: { id: 1, code: 'EQ-001', name: '数控车床 CK6140 主轴轴承', health_state: 0, rpm: 1750, load_ratio: 0.8, location: '一号车间 A区', status: '运行' } } };
     throw new Error('unexpected GET ' + url);
@@ -122,7 +125,7 @@ async function mountPage(page) {
   const pages = [
     { page: 'monitoring', menu: '设备监控', expect: '请选择设备开始监控' },
     { page: 'chat', menu: '智能诊断', expect: '新对话' },
-    { page: 'workorders', menu: '工单管理', expect: '工单管理建设中' },
+    { page: 'workorders', menu: '工单管理', expect: '工单列表' },
     { page: 'knowledge', menu: '知识库', expect: '语料文档（1 篇）' },
     { page: 'devices', menu: '设备台账', expect: '共 2 台' },
     { page: 'admin', menu: '系统管理', expect: '系统说明' },
